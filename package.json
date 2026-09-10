@@ -1,0 +1,20 @@
+{
+  "name": "jbb-grok-mobile-chat",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "test:watch": "node --test --watch",
+    "check": "node scripts/check-project.js",
+    "configure:worker": "node scripts/configure-worker.js",
+    "deploy:worker": "npx --yes wrangler@latest deploy"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.4",
+    "linkedom": "^0.18.12"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

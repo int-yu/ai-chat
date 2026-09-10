@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#f4f0e8" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#151715" media="(prefers-color-scheme: dark)">
+    <meta name="referrer" content="no-referrer">
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' https://jbb-grok-chat-proxy.inta95870.workers.dev; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'"
+    >
+    <meta name="description" content="一款在手机上使用 JBB Grok API 的私人聊天工具">
+    <title>Grok 随身对话</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <button id="history-button" class="icon-button" type="button" aria-label="打开历史对话" aria-controls="history-drawer">
+          <span aria-hidden="true">☰</span>
+        </button>
+        <div class="brand-block">
+          <div class="brand-row">
+            <h1>Grok 随身对话</h1>
+            <span id="connection-dot" class="connection-dot" data-state="idle" aria-hidden="true"></span>
+          </div>
+          <button id="model-button" class="model-label" type="button" aria-label="打开设置选择模型">尚未连接模型</button>
+        </div>
+        <div class="topbar-actions">
+          <button id="new-chat-button" class="icon-button" type="button" aria-label="新建对话" title="新建对话">
+            <span aria-hidden="true">＋</span>
+          </button>
+          <button id="settings-button" class="icon-button" type="button" aria-label="打开设置" title="设置">
+            <span aria-hidden="true">⚙</span>
+          </button>
+        </div>
+      </header>
+
+      <div id="notice" class="notice" role="status" hidden></div>
+
+      <main id="chat-main" aria-label="聊天内容">
+        <section id="empty-state" class="empty-state">
+          <div class="empty-mark" aria-hidden="true">G</div>
+          <p class="eyebrow">PRIVATE · MOBILE · STREAMING</p>
+          <h2>从一个问题开始</h2>
+          <p>对话只保存在这台设备。上下文变长时，我会自动提炼重点并继续。</p>
+          <div class="suggestion-grid" aria-label="示例问题">
+            <button type="button" data-suggestion="帮我把今天的想法整理成清晰的行动清单">整理想法</button>
+            <button type="button" data-suggestion="用简单的语言解释一个我接下来发给你的概念">解释概念</button>
+            <button type="button" data-suggestion="帮我逐步分析一个选择，并列出关键取舍">分析选择</button>
+          </div>
+        </section>
+        <section id="message-list" class="message-list" aria-live="polite" aria-label="消息列表"></section>
+      </main>
+
+      <form id="composer" class="composer" autocomplete="off">
+        <div id="memory-strip" class="memory-strip" hidden>
+          <button id="view-memory-button" type="button">
+            <span aria-hidden="true">✦</span>
+            <span id="memory-strip-text">上下文已优化</span>
+          </button>
+        </div>
+        <div class="composer-box">
+          <textarea
+            id="message-input"
+            rows="1"
+            maxlength="200000"
+            aria-label="输入消息"
+            placeholder="给 Grok 发消息…"
+          ></textarea>
+          <div class="composer-actions">
+            <span id="draft-hint">Enter 发送 · Shift+Enter 换行</span>
+            <button id="stop-button" class="stop-button" type="button" hidden>停止</button>
+            <button id="send-button" class="send-button" type="submit">发送</button>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
+    <aside id="history-drawer" class="history-drawer" aria-label="历史对话" aria-hidden="true">
+      <div class="drawer-header">
+        <div>
+          <p class="eyebrow">YOUR CONVERSATIONS</p>
+          <h2>历史对话</h2>
+        </div>
+        <button id="close-history-button" class="icon-button" type="button" aria-label="关闭历史对话">×</button>
+      </div>
+      <button id="drawer-new-chat-button" class="primary-wide" type="button">＋ 新建对话</button>
+      <div id="history-list" class="history-list"></div>
+    </aside>
+
+    <dialog id="settings-dialog" class="modal">
+      <form id="settings-form" method="dialog">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">CONNECTION</p>
+            <h2>连接设置</h2>
+          </div>
+          <button class="icon-button" value="cancel" type="submit" aria-label="关闭设置">×</button>
+        </div>
+
+        <div id="proxy-warning" class="warning-card" hidden>
+          <strong>Worker 尚未配置</strong>
+          <p>请先按照 README 的部署步骤写入 Worker 地址。</p>
+        </div>
+
+        <label class="field-label" for="api-key-input">JBB API 密钥</label>
+        <div class="password-field">
+          <input id="api-key-input" type="password" inputmode="text" autocomplete="off" spellcheck="false" placeholder="sk-…">
+          <button id="toggle-key-button" type="button" aria-label="显示或隐藏密钥">显示</button>
+        </div>
+        <p class="field-help">密钥保存在当前浏览器，不会写入仓库或 Worker。</p>
+
+        <label class="field-label" for="model-select">Grok 模型</label>
+        <select id="model-select" disabled>
+          <option value="">保存密钥后自动加载</option>
+        </select>
+
+        <div id="manual-model-field" hidden>
+          <label class="field-label" for="manual-model-input">手动模型名称</label>
+          <input id="manual-model-input" type="text" autocomplete="off" spellcheck="false" placeholder="例如 grok-4">
+          <p class="field-help">模型列表中没有识别到 Grok 时使用。</p>
+        </div>
+
+        <div class="settings-actions">
+          <button id="clear-data-button" class="danger-button" type="button">清除本机全部数据</button>
+          <button id="save-settings-button" class="primary-button" type="submit" value="save">保存并连接</button>
+        </div>
+
+        <div class="advanced-section">
+          <div>
+            <strong>上下文记忆</strong>
+            <p>当前对话达到安全阈值时自动优化。</p>
+          </div>
+          <button id="compact-now-button" class="secondary-button" type="button">立即优化</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="memory-dialog" class="modal memory-modal">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">COMPACTED MEMORY</p>
+          <h2>上下文摘要</h2>
+        </div>
+        <button id="close-memory-button" class="icon-button" type="button" aria-label="关闭上下文摘要">×</button>
+      </div>
+      <div id="memory-content" class="memory-content"></div>
+    </dialog>
+
+    <div id="toast-region" class="toast-region" aria-live="assertive" aria-atomic="true"></div>
+    <noscript>此页面需要启用 JavaScript 才能进行对话。</noscript>
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>
