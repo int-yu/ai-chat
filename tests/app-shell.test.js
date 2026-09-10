@@ -16,6 +16,8 @@ test('app shell exposes the core mobile chat controls with accessible labels', a
   assert.equal(document.querySelector('#message-input')?.getAttribute('aria-label'), '输入消息');
   assert.equal(document.querySelector('#send-button')?.textContent.trim(), '发送');
   assert.equal(document.querySelector('#new-chat-button')?.getAttribute('aria-label'), '新建对话');
+  assert.equal(document.querySelector('#empty-state'), null);
+  assert.equal(document.querySelectorAll('[data-suggestion]').length, 0);
   assert.ok(document.querySelector('#settings-dialog'));
   assert.ok(document.querySelector('#memory-dialog'));
 });

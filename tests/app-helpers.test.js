@@ -4,10 +4,17 @@ import assert from 'node:assert/strict';
 import {
   chooseModel,
   createMessage,
+  isNearScrollBottom,
   isProxyConfigured,
   normalizeLoadedConversation,
   stopGenerationAndWait,
 } from '../src/app-helpers.js';
+
+test('isNearScrollBottom follows new content only while the reader stays near the bottom', () => {
+  assert.equal(isNearScrollBottom({ scrollTop: 900, clientHeight: 500, scrollHeight: 1_480 }), true);
+  assert.equal(isNearScrollBottom({ scrollTop: 700, clientHeight: 500, scrollHeight: 1_480 }), false);
+  assert.equal(isNearScrollBottom({ scrollTop: 0, clientHeight: 500, scrollHeight: 400 }), true);
+});
 
 test('chooseModel preserves a valid selection and otherwise chooses the first Grok model', () => {
   const models = [{ id: 'grok-4' }, { id: 'grok-code-fast-1' }];

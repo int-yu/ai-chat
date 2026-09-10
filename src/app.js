@@ -3,6 +3,7 @@ import { ApiError, createApiClient, isContextOverflowError } from './api.js';
 import {
   chooseModel,
   createMessage,
+  isNearScrollBottom,
   isProxyConfigured,
   normalizeLoadedConversation,
   stopGenerationAndWait,
@@ -20,7 +21,7 @@ import {
 } from './storage.js';
 
 const elements = Object.fromEntries([
-  'chat-main', 'empty-state', 'message-list', 'message-input', 'composer', 'send-button',
+  'chat-main', 'message-list', 'message-input', 'composer', 'send-button',
   'stop-button', 'history-button', 'new-chat-button', 'settings-button', 'model-button',
   'connection-dot', 'notice', 'history-drawer', 'drawer-backdrop', 'close-history-button',
   'drawer-new-chat-button', 'history-list', 'settings-dialog', 'settings-form', 'api-key-input',
@@ -42,6 +43,7 @@ let activeController = null;
 let activeGenerationPromise = null;
 let generating = false;
 let renderFrame = 0;
+let followLatest = true;
 
 function showToast(message, duration = 3_200) {
   const toast = document.createElement('div');
@@ -74,6 +76,7 @@ function resizeComposer() {
 }
 
 function scrollToLatest(behavior = 'smooth') {
+  followLatest = true;
   elements.chatMain.scrollTo({ top: elements.chatMain.scrollHeight, behavior });
 }
 
@@ -160,9 +163,6 @@ function renderMessage(message) {
 
 function renderConversation({ keepScroll = false } = {}) {
   if (!activeConversation) return;
-  const hasMessages = activeConversation.messages.length > 0;
-  elements.emptyState.hidden = hasMessages;
-  elements.messageList.hidden = !hasMessages;
   elements.messageList.replaceChildren(...activeConversation.messages.map(renderMessage));
 
   const hasMemory = Boolean(activeConversation.memorySummary);
@@ -184,10 +184,10 @@ function updateStreamingMessage(conversation, message) {
   }
   bubble.textContent = message.content;
   bubble.classList.add('streaming-cursor');
-  if (!renderFrame) {
+  if (!renderFrame && followLatest) {
     renderFrame = requestAnimationFrame(() => {
       renderFrame = 0;
-      scrollToLatest('auto');
+      if (followLatest) scrollToLatest('auto');
     });
   }
 }
@@ -530,6 +530,9 @@ elements.composer.addEventListener('submit', (event) => {
 });
 
 elements.messageInput.addEventListener('input', resizeComposer);
+elements.chatMain.addEventListener('scroll', () => {
+  followLatest = isNearScrollBottom(elements.chatMain);
+}, { passive: true });
 elements.messageInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
@@ -675,14 +678,6 @@ elements.historyList.addEventListener('click', async (event) => {
       showToast(`删除失败：${error.message}`);
     }
   }
-});
-
-document.querySelectorAll('[data-suggestion]').forEach((button) => {
-  button.addEventListener('click', () => {
-    elements.messageInput.value = button.dataset.suggestion;
-    resizeComposer();
-    elements.messageInput.focus();
-  });
 });
 
 async function initialize() {

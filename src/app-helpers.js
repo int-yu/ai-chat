@@ -55,6 +55,12 @@ export function isProxyConfigured(value) {
   }
 }
 
+export function isNearScrollBottom(element, threshold = 96) {
+  if (!element) return true;
+  const distance = element.scrollHeight - element.clientHeight - element.scrollTop;
+  return distance <= threshold;
+}
+
 export async function stopGenerationAndWait(controller, generationPromise) {
   controller?.abort();
   if (generationPromise) await generationPromise;
