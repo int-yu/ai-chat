@@ -54,6 +54,45 @@ test('readChatStream emits text deltas and usage from a real stream', async () =
   assert.equal(result, '你好');
 });
 
+test('readChatStream emits reasoning summaries separately from answer text', async () => {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"reasoning_content":"先构思人物"}}]}\n\n'));
+      controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"故事开始"}}]}\n\n'));
+      controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+      controller.close();
+    },
+  });
+  const reasoning = [];
+  const answers = [];
+
+  const result = await readChatStream(stream, {
+    onReasoningDelta: (text) => reasoning.push(text),
+    onDelta: (text) => answers.push(text),
+  });
+
+  assert.deepEqual(reasoning, ['先构思人物']);
+  assert.deepEqual(answers, ['故事开始']);
+  assert.equal(result, '故事开始');
+});
+
+test('readChatStream falls back to a string reasoning field when reasoning_content is not text', async () => {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"reasoning_content":{"unexpected":true},"reasoning":"兼容摘要"}}]}\n\n'));
+      controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+      controller.close();
+    },
+  });
+  const reasoning = [];
+
+  await readChatStream(stream, { onReasoningDelta: (text) => reasoning.push(text) });
+
+  assert.deepEqual(reasoning, ['兼容摘要']);
+});
+
 test('readChatStream surfaces an error event from the provider', async () => {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({

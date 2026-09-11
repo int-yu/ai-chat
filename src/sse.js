@@ -47,7 +47,12 @@ export function createSseParser(onEvent) {
 }
 
 export async function readChatStream(stream, options = {}) {
-  const { onDelta = () => {}, onUsage = () => {}, signal } = options;
+  const {
+    onDelta = () => {},
+    onReasoningDelta = () => {},
+    onUsage = () => {},
+    signal,
+  } = options;
   if (signal?.aborted) throw abortError();
 
   const reader = stream.getReader();
@@ -74,6 +79,13 @@ export async function readChatStream(stream, options = {}) {
     if (typeof delta === 'string' && delta.length > 0) {
       fullText += delta;
       onDelta(delta, fullText);
+    }
+    const reasoningDelta = [
+      payload?.choices?.[0]?.delta?.reasoning_content,
+      payload?.choices?.[0]?.delta?.reasoning,
+    ].find((value) => typeof value === 'string');
+    if (typeof reasoningDelta === 'string' && reasoningDelta.length > 0) {
+      onReasoningDelta(reasoningDelta);
     }
     if (payload?.usage) onUsage(payload.usage);
   });

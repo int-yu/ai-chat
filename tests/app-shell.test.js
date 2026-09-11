@@ -12,6 +12,7 @@ test('app shell exposes the core mobile chat controls with accessible labels', a
   const document = await loadDocument();
 
   assert.ok(document.querySelector('meta[name="viewport"]')?.content.includes('viewport-fit=cover'));
+  assert.ok(document.querySelector('meta[name="viewport"]')?.content.includes('interactive-widget=resizes-content'));
   assert.equal(document.querySelector('main')?.getAttribute('aria-label'), '聊天内容');
   assert.equal(document.querySelector('#message-input')?.getAttribute('aria-label'), '输入消息');
   assert.equal(document.querySelector('#send-button')?.textContent.trim(), '发送');
@@ -20,6 +21,7 @@ test('app shell exposes the core mobile chat controls with accessible labels', a
   assert.equal(document.querySelectorAll('[data-suggestion]').length, 0);
   assert.ok(document.querySelector('#settings-dialog'));
   assert.ok(document.querySelector('#memory-dialog'));
+  assert.equal(document.querySelector('link[rel="preconnect"]')?.href, 'https://jbb-grok-chat-proxy.inta95870.workers.dev');
 });
 
 test('app shell loads only local scripts and styles at runtime', async () => {

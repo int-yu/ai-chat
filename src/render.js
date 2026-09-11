@@ -11,6 +11,20 @@ function safeLink(value) {
   }
 }
 
+export function createReasoningPanel(document, reasoning, { open = false } = {}) {
+  const panel = document.createElement('details');
+  panel.className = 'reasoning-panel';
+  panel.open = open;
+
+  const summary = document.createElement('summary');
+  summary.textContent = '提供商推理摘要';
+  const content = document.createElement('div');
+  content.className = 'reasoning-content';
+  content.textContent = String(reasoning ?? '');
+  panel.append(summary, content);
+  return panel;
+}
+
 function appendInline(document, parent, text) {
   const tokenPattern = /`([^`\n]+)`|\[([^\]]+)\]\(([^)\s]+)\)|\*\*([^*\n]+)\*\*|\*([^*\n]+)\*/g;
   let cursor = 0;

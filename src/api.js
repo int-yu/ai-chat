@@ -100,7 +100,7 @@ export function createApiClient({ baseUrl, fetchImpl = globalThis.fetch } = {}) 
       }
     },
 
-    async streamChat({ apiKey, model, messages, signal, onDelta, onUsage }) {
+    async streamChat({ apiKey, model, messages, signal, onDelta, onReasoningDelta, onUsage }) {
       const response = await fetchApi('/v1/chat/completions', {
         apiKey,
         method: 'POST',
@@ -108,7 +108,7 @@ export function createApiClient({ baseUrl, fetchImpl = globalThis.fetch } = {}) 
         signal,
       });
       if (!response.body) throw new ApiError('服务没有返回可读取的内容。', response.status);
-      return readChatStream(response.body, { signal, onDelta, onUsage });
+      return readChatStream(response.body, { signal, onDelta, onReasoningDelta, onUsage });
     },
 
     async summarize({ apiKey, model, messages, signal }) {

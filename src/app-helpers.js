@@ -19,6 +19,7 @@ export function createMessage(role, content, { id = makeId(), now = Date.now() }
     content,
     createdAt: now,
     status: role === 'assistant' && !content ? 'streaming' : 'complete',
+    reasoning: '',
   };
 }
 
@@ -32,6 +33,7 @@ export function normalizeLoadedConversation(conversation) {
       ? conversation.messages.map((message) => ({
         ...message,
         status: message.status === 'streaming' ? 'stopped' : (message.status || 'complete'),
+        reasoning: typeof message.reasoning === 'string' ? message.reasoning : '',
       }))
       : [],
     memorySummary: typeof conversation.memorySummary === 'string' ? conversation.memorySummary : '',
@@ -59,6 +61,68 @@ export function isNearScrollBottom(element, threshold = 96) {
   if (!element) return true;
   const distance = element.scrollHeight - element.clientHeight - element.scrollTop;
   return distance <= threshold;
+}
+
+export function getVisibleViewportGeometry(windowLike) {
+  const visualHeight = Number(windowLike?.visualViewport?.height);
+  const innerHeight = Number(windowLike?.innerHeight);
+  const height = Number.isFinite(visualHeight) && visualHeight > 0
+    ? visualHeight
+    : (Number.isFinite(innerHeight) && innerHeight > 0 ? innerHeight : 0);
+  const visualOffsetTop = Number(windowLike?.visualViewport?.offsetTop);
+  const offsetTop = Number.isFinite(visualOffsetTop) ? Math.max(0, visualOffsetTop) : 0;
+  return { height, offsetTop };
+}
+
+export function getVisibleViewportHeight(windowLike) {
+  return getVisibleViewportGeometry(windowLike).height;
+}
+
+export function createFrameBatcher(scheduleFrame = globalThis.requestAnimationFrame) {
+  let scheduled = false;
+  let latestTask = null;
+  let version = 0;
+
+  const batch = (task) => {
+    latestTask = task;
+    if (scheduled) return;
+    scheduled = true;
+    const frameVersion = version;
+    scheduleFrame(() => {
+      if (frameVersion !== version) return;
+      scheduled = false;
+      const currentTask = latestTask;
+      latestTask = null;
+      currentTask?.();
+    });
+  };
+
+  batch.cancel = () => {
+    version += 1;
+    scheduled = false;
+    latestTask = null;
+  };
+
+  batch.flush = () => {
+    const currentTask = latestTask;
+    version += 1;
+    scheduled = false;
+    latestTask = null;
+    currentTask?.();
+  };
+
+  return batch;
+}
+
+export function hasMessageOutput(message) {
+  return Boolean(message?.content || message?.reasoning);
+}
+
+export function prepareAssistantRetry(message) {
+  message.content = '';
+  message.reasoning = '';
+  message.status = 'streaming';
+  return message;
 }
 
 export async function stopGenerationAndWait(controller, generationPromise) {

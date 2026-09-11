@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseHTML } from 'linkedom';
 
-import { renderMarkdown } from '../src/render.js';
+import { createReasoningPanel, renderMarkdown } from '../src/render.js';
 
 function render(markdown) {
   const { document } = parseHTML('<main id="output"></main>');
@@ -44,4 +44,15 @@ test('renderMarkdown supports emphasis and inline code without interpreting thei
   assert.equal(output.querySelector('em').textContent, '提示');
   assert.equal(output.querySelector('code').textContent, '<script>');
   assert.equal(output.querySelector('script'), null);
+});
+
+test('createReasoningPanel shows provider reasoning as safe collapsible text', () => {
+  const { document } = parseHTML('<main></main>');
+  const panel = createReasoningPanel(document, '<img src=x onerror=alert(1)>', { open: true });
+
+  assert.equal(panel.localName, 'details');
+  assert.equal(panel.open, true);
+  assert.equal(panel.querySelector('summary').textContent, '提供商推理摘要');
+  assert.equal(panel.querySelector('.reasoning-content').textContent, '<img src=x onerror=alert(1)>');
+  assert.equal(panel.querySelector('img'), null);
 });

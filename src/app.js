@@ -2,15 +2,19 @@ import { APP_CONFIG } from './config.js';
 import { ApiError, createApiClient, isContextOverflowError } from './api.js';
 import {
   chooseModel,
+  createFrameBatcher,
   createMessage,
+  getVisibleViewportGeometry,
+  hasMessageOutput,
   isNearScrollBottom,
   isProxyConfigured,
   normalizeLoadedConversation,
+  prepareAssistantRetry,
   stopGenerationAndWait,
 } from './app-helpers.js';
 import { MessageTooLongError, prepareConversationContext } from './context-manager.js';
 import { filterGrokModels } from './models.js';
-import { renderMarkdown } from './render.js';
+import { createReasoningPanel, renderMarkdown } from './render.js';
 import {
   clearPreferences,
   createConversation,
@@ -42,8 +46,9 @@ let models = [];
 let activeController = null;
 let activeGenerationPromise = null;
 let generating = false;
-let renderFrame = 0;
 let followLatest = true;
+const batchStreamingRender = createFrameBatcher((callback) => requestAnimationFrame(callback));
+const batchViewportSync = createFrameBatcher((callback) => requestAnimationFrame(callback));
 
 function showToast(message, duration = 3_200) {
   const toast = document.createElement('div');
@@ -71,8 +76,21 @@ function setGenerating(value) {
 }
 
 function resizeComposer() {
+  const { height: viewportHeight } = getVisibleViewportGeometry(window);
+  const maxHeight = Math.min(180, viewportHeight * 0.3);
   elements.messageInput.style.height = 'auto';
-  elements.messageInput.style.height = `${Math.min(elements.messageInput.scrollHeight, window.innerHeight * 0.34)}px`;
+  elements.messageInput.style.height = `${Math.min(elements.messageInput.scrollHeight, maxHeight)}px`;
+}
+
+function syncViewportGeometry() {
+  const { height, offsetTop } = getVisibleViewportGeometry(window);
+  if (height > 0) document.documentElement.style.setProperty('--app-height', `${Math.round(height)}px`);
+  document.documentElement.style.setProperty('--app-offset-top', `${Math.round(offsetTop)}px`);
+  resizeComposer();
+}
+
+function scheduleViewportSync() {
+  batchViewportSync(syncViewportGeometry);
 }
 
 function scrollToLatest(behavior = 'smooth') {
@@ -109,7 +127,7 @@ async function persistConversation(conversation) {
 }
 
 function statusLabel(message) {
-  if (message.status === 'streaming') return '正在回答';
+  if (message.status === 'streaming') return message.content ? '正在回答' : '正在等待响应';
   if (message.status === 'stopped') return '已停止';
   if (message.status === 'error') return '发送失败';
   return message.role === 'user' ? '你' : 'Grok';
@@ -137,14 +155,23 @@ function renderMessage(message) {
 
   const bubble = document.createElement('div');
   bubble.className = 'message-bubble';
-  if (message.status === 'streaming') bubble.classList.add('streaming-cursor');
+  if (message.status === 'streaming') {
+    bubble.classList.add('streaming-cursor');
+    if (!message.content) bubble.classList.add('is-waiting');
+  }
   if (message.role === 'assistant' && message.status !== 'streaming') {
     renderMarkdown(bubble, message.content);
   } else {
-    bubble.textContent = message.content;
+    bubble.textContent = message.content || (message.status === 'streaming' ? '正在等待首段内容…' : '');
   }
 
-  article.append(meta, bubble);
+  article.append(meta);
+  if (message.role === 'assistant' && message.reasoning) {
+    article.append(createReasoningPanel(document, message.reasoning, {
+      open: message.status === 'streaming',
+    }));
+  }
+  article.append(bubble);
 
   if (message.role === 'assistant' && message.status !== 'streaming') {
     const tools = document.createElement('div');
@@ -177,19 +204,30 @@ function renderConversation({ keepScroll = false } = {}) {
 function updateStreamingMessage(conversation, message) {
   if (activeConversation?.id !== conversation.id) return;
   const article = document.getElementById(`message-${message.id}`);
-  const bubble = article?.querySelector('.message-bubble');
-  if (!bubble) {
+  if (!article) {
     renderConversation();
     return;
   }
-  bubble.textContent = message.content;
-  bubble.classList.add('streaming-cursor');
-  if (!renderFrame && followLatest) {
-    renderFrame = requestAnimationFrame(() => {
-      renderFrame = 0;
-      if (followLatest) scrollToLatest('auto');
-    });
-  }
+  batchStreamingRender(() => {
+    if (activeConversation?.id !== conversation.id || message.status !== 'streaming') return;
+    const currentArticle = document.getElementById(`message-${message.id}`);
+    const bubble = currentArticle?.querySelector('.message-bubble');
+    if (!currentArticle || !bubble) return;
+
+    let reasoningPanel = currentArticle.querySelector('.reasoning-panel');
+    if (message.reasoning && !reasoningPanel) {
+      reasoningPanel = createReasoningPanel(document, message.reasoning, { open: true });
+      currentArticle.insertBefore(reasoningPanel, bubble);
+    } else if (reasoningPanel) {
+      reasoningPanel.querySelector('.reasoning-content').textContent = message.reasoning;
+    }
+
+    bubble.textContent = message.content || '正在等待首段内容…';
+    bubble.classList.add('streaming-cursor');
+    bubble.classList.toggle('is-waiting', !message.content);
+    currentArticle.querySelector('.message-meta').textContent = statusLabel(message);
+    if (followLatest) scrollToLatest('auto');
+  });
 }
 
 function formatConversationTime(timestamp) {
@@ -338,23 +376,34 @@ function markAssistantError(conversation, assistantId, error) {
 
 async function streamPreparedConversation(conversation, assistantId, apiMessages, controller) {
   const assistant = conversation.messages.find((message) => message.id === assistantId);
+  batchStreamingRender.cancel();
   assistant.content = '';
+  assistant.reasoning = '';
   assistant.status = 'streaming';
+  if (activeConversation?.id === conversation.id) renderConversation({ keepScroll: true });
 
-  await client.streamChat({
-    apiKey: preferences.apiKey,
-    model: conversation.modelId,
-    messages: apiMessages,
-    signal: controller.signal,
-    onDelta: (delta) => {
-      assistant.content += delta;
-      updateStreamingMessage(conversation, assistant);
-    },
-  });
+  try {
+    await client.streamChat({
+      apiKey: preferences.apiKey,
+      model: conversation.modelId,
+      messages: apiMessages,
+      signal: controller.signal,
+      onDelta: (delta) => {
+        assistant.content += delta;
+        updateStreamingMessage(conversation, assistant);
+      },
+      onReasoningDelta: (delta) => {
+        assistant.reasoning += delta;
+        updateStreamingMessage(conversation, assistant);
+      },
+    });
+  } finally {
+    batchStreamingRender.flush();
+  }
   assistant.status = 'complete';
 }
 
-async function generateAssistant(startConversation, assistantId) {
+async function generateAssistant(startConversation, assistantId, initialSavePromise = Promise.resolve()) {
   const controller = new AbortController();
   activeController = controller;
   setGenerating(true);
@@ -371,6 +420,7 @@ async function generateAssistant(startConversation, assistantId) {
     conversation = prepared.conversation;
     conversation.modelId = currentModelId();
     if (prepared.compacted) {
+      await initialSavePromise;
       await persistConversation(conversation);
       showToast('较早的对话已提炼为上下文摘要。');
     }
@@ -392,6 +442,7 @@ async function generateAssistant(startConversation, assistantId) {
         throw new MessageTooLongError();
       }
       conversation = prepared.conversation;
+      await initialSavePromise;
       await persistConversation(conversation);
       showToast('检测到上下文上限，已优化后自动重试。');
       await streamPreparedConversation(conversation, assistantId, prepared.apiMessages, controller);
@@ -399,7 +450,7 @@ async function generateAssistant(startConversation, assistantId) {
   } catch (error) {
     const assistant = conversation.messages.find((message) => message.id === assistantId);
     if (error?.name === 'AbortError') {
-      if (assistant?.content) assistant.status = 'stopped';
+      if (hasMessageOutput(assistant)) assistant.status = 'stopped';
       else conversation.messages = conversation.messages.filter((message) => message.id !== assistantId);
     } else {
       markAssistantError(conversation, assistantId, error);
@@ -407,12 +458,14 @@ async function generateAssistant(startConversation, assistantId) {
       setConnection('error');
     }
   } finally {
+    batchStreamingRender.cancel();
     conversation.updatedAt = Date.now();
-    try { await persistConversation(conversation); } catch { /* toast already shown */ }
     if (activeConversation?.id === conversation.id) {
       activeConversation = conversation;
-      renderConversation();
+      renderConversation({ keepScroll: !followLatest });
     }
+    await initialSavePromise;
+    try { await persistConversation(conversation); } catch { /* toast already shown */ }
     if (activeController === controller) {
       activeController = null;
       setGenerating(false);
@@ -441,9 +494,9 @@ async function sendDraft() {
   elements.messageInput.value = '';
   resizeComposer();
 
-  try { await persistConversation(activeConversation); } catch { /* continue in memory */ }
   renderConversation();
-  const generationPromise = generateAssistant(activeConversation, assistantMessage.id);
+  const initialSavePromise = persistConversation(activeConversation).catch(() => {});
+  const generationPromise = generateAssistant(activeConversation, assistantMessage.id, initialSavePromise);
   activeGenerationPromise = generationPromise;
   await generationPromise;
   if (activeGenerationPromise === generationPromise) activeGenerationPromise = null;
@@ -453,12 +506,11 @@ async function retryMessage(messageId) {
   if (generating) return;
   const assistant = activeConversation.messages.find((message) => message.id === messageId);
   if (!assistant || assistant.role !== 'assistant') return;
-  assistant.content = '';
-  assistant.status = 'streaming';
+  prepareAssistantRetry(assistant);
   activeConversation.updatedAt = Date.now();
-  try { await persistConversation(activeConversation); } catch { /* continue in memory */ }
   renderConversation();
-  const generationPromise = generateAssistant(activeConversation, assistant.id);
+  const initialSavePromise = persistConversation(activeConversation).catch(() => {});
+  const generationPromise = generateAssistant(activeConversation, assistant.id, initialSavePromise);
   activeGenerationPromise = generationPromise;
   await generationPromise;
   if (activeGenerationPromise === generationPromise) activeGenerationPromise = null;
@@ -530,6 +582,9 @@ elements.composer.addEventListener('submit', (event) => {
 });
 
 elements.messageInput.addEventListener('input', resizeComposer);
+window.addEventListener('resize', scheduleViewportSync, { passive: true });
+window.visualViewport?.addEventListener('resize', scheduleViewportSync, { passive: true });
+window.visualViewport?.addEventListener('scroll', scheduleViewportSync, { passive: true });
 elements.chatMain.addEventListener('scroll', () => {
   followLatest = isNearScrollBottom(elements.chatMain);
 }, { passive: true });
@@ -718,4 +773,5 @@ async function initialize() {
   }
 }
 
+syncViewportGeometry();
 initialize();

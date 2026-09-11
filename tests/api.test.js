@@ -38,6 +38,7 @@ test('streamChat emits streamed content and sends only the OpenAI-compatible fie
       return new Response(
         new ReadableStream({
           start(controller) {
+            controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"reasoning_content":"构思"}}]}\n\n'));
             controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"回答"}}]}\n\n'));
             controller.enqueue(encoder.encode('data: [DONE]\n\n'));
             controller.close();
@@ -48,16 +49,19 @@ test('streamChat emits streamed content and sends only the OpenAI-compatible fie
     },
   });
   const deltas = [];
+  const reasoningDeltas = [];
 
   const text = await client.streamChat({
     apiKey: 'key',
     model: 'grok-4',
     messages: [{ role: 'user', content: '问题' }],
     onDelta: (delta) => deltas.push(delta),
+    onReasoningDelta: (delta) => reasoningDeltas.push(delta),
   });
 
   assert.equal(text, '回答');
   assert.deepEqual(deltas, ['回答']);
+  assert.deepEqual(reasoningDeltas, ['构思']);
   assert.deepEqual(capturedBody, {
     model: 'grok-4',
     messages: [{ role: 'user', content: '问题' }],
